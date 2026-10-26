@@ -1,0 +1,180 @@
+// Michbenia — modèle de données.
+// SQLite en local ; pour la production, passer provider = "postgresql" (voir README).
+// Les champs "statut" et "type" sont des chaînes typées côté TypeScript (src/lib/types.ts)
+// pour rester compatibles SQLite et PostgreSQL ; les champs *Json stockent du JSON sérialisé.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId  String
+}
+
+model Workspace {
+  id             String          @id @default(cuid())
+  name           String
+  plan           String          @default("FREE") // FREE | HOBBY | PRO | ENTERPRISE
+  credits        Int             @default(300)
+  createdAt      DateTime        @default(now())
+  users          User[]
+  avatars        Avatar[]
+  scripts        Script[]
+  videos         Video[]
+  socialAccounts SocialAccount[]
+  posts          Post[]
+  apiKeys        ApiKey[]
+  ledger         CreditLedger[]
+  inspirations   Inspiration[]
+}
+
+model Avatar {
+  id               String    @id @default(cuid())
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId      String
+  name             String
+  persona          String // personnalité, ton, façon de parler
+  niche            String
+  language         String    @default("fr")
+  imageUrl         String?
+  voiceId          String? // identifiant de voix chez le fournisseur
+  providerAvatarId String? // identifiant d'avatar chez le fournisseur (ex. HeyGen)
+  createdAt        DateTime  @default(now())
+  videos           Video[]
+  socialAccounts   SocialAccount[]
+}
+
+model Script {
+  id          String    @id @default(cuid())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  format      String // YAPPER | SLIDESHOW
+  product     String
+  audience    String
+  angle       String?
+  hooksJson   String // string[]
+  body        String // script parlé (yapper) ou texte global (slideshow)
+  slidesJson  String? // { title, text }[] pour les slideshows
+  cta         String
+  caption     String
+  hashtags    String
+  createdAt   DateTime  @default(now())
+  videos      Video[]
+}
+
+model Video {
+  id            String    @id @default(cuid())
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId   String
+  type          String // YAPPER | SLIDESHOW
+  title         String
+  status        String    @default("QUEUED") // QUEUED | RENDERING | READY | FAILED
+  avatar        Avatar?   @relation(fields: [avatarId], references: [id], onDelete: SetNull)
+  avatarId      String?
+  script        Script?   @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+  scriptId      String?
+  hook          String
+  slidesJson    String?
+  provider      String // mock | heygen | slideshow
+  providerJobId String?
+  outputUrl     String?
+  thumbnailUrl  String?
+  error         String?
+  creditsCost   Int
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  posts         Post[]
+}
+
+model SocialAccount {
+  id             String    @id @default(cuid())
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId    String
+  platform       String // TIKTOK | INSTAGRAM
+  handle         String
+  externalId     String?
+  accessToken    String?
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+  avatar         Avatar?   @relation(fields: [avatarId], references: [id], onDelete: SetNull)
+  avatarId       String?
+  createdAt      DateTime  @default(now())
+  posts          Post[]
+
+  @@unique([workspaceId, platform, handle])
+}
+
+model Post {
+  id          String        @id @default(cuid())
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  video       Video         @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  videoId     String
+  account     SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId   String
+  caption     String
+  scheduledAt DateTime
+  status      String        @default("SCHEDULED") // SCHEDULED | PUBLISHING | PUBLISHED | FAILED
+  externalId  String?
+  externalUrl String?
+  error       String?
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+  metrics     PostMetric[]
+
+  @@index([status, scheduledAt])
+}
+
+model PostMetric {
+  id         String   @id @default(cuid())
+  post       Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId     String
+  views      Int
+  likes      Int
+  comments   Int
+  shares     Int
+  capturedAt DateTime @default(now())
+
+  @@index([postId, capturedAt])
+}
+
+// Comptes TikTok/Instagram suivis comme source d'inspiration (réplication de formats).
+model Inspiration {
+  id          String    @id @default(cuid())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  url         String
+  notes       String?
+  createdAt   DateTime  @default(now())
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  name        String
+  prefix      String // affiché à l'utilisateur, ex. "mb_live_ab12"
+  hash        String    @unique // sha256 de la clé complète
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model CreditLedger {
+  id          String    @id @default(cuid())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String
+  delta       Int // négatif = consommation, positif = recharge
+  reason      String
+  createdAt   DateTime  @default(now())
+}
